@@ -1,6 +1,8 @@
 ## 创建工程文件夹，建立git项目，测试协同开发。
+
 ## 编写README.md 描述项目
-## 开发环境检查，mysql，hdfs，presto,yarn,redis。每人配置自己环境。
+
+## 开发环境检查，mysql,hdfs,presto,yarn,redis。每人配置自己环境。
 - mysql
 - hdfs
 - presto
@@ -8,19 +10,20 @@
 - redis
 - kafka
 - spark
+
 ## 数据目录:
     /Alibaba/data/shop_info.txt
     /Alibaba/data/user_pay.txt
     /Alibaba/data/user_view.txt
 ## 项目分解：  
 ### 任务一  
-#### 1. shop_info导入到商家数据表。     
+#### 1.shop_info导入到商家数据表。     
 Mysql信息 db：Alibaba，table：shop_info。 
 字段名按文档：    
     ```
     shop_id(int 10),city_name(varchar 100),location_id(varchar 10),per_pay(int 10),score(int 10),comment_cnt(int 10),shop_level(int 10),cate_1_name(varchar 50),cate_2_name(varchar 50),cate3_2_name(varchar 50)
     ```   
-#### 2. user_pay,user_view 导入HDFS，创建Alibaba目录。     
+#### 2.user_pay,user_view 导入HDFS，创建Alibaba目录。     
 URL：hdfs://bigdata:9000/Alibaba/user_pay.txt
 ## 任务二
 sqoop 导入Hdfs，依照之前规范。
