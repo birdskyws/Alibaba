@@ -17,7 +17,7 @@
     /Alibaba/data/user_view.txt
 ## 项目分解：  
 ### 任务一  
-#### 1.shop_info导入到商家数据表。     
+#### 1.shop_info导入到商家数据表。     
 Mysql信息 db：Alibaba，table：shop_info。 
 字段名按文档：    
     ```
