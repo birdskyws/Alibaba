@@ -1,0 +1,83 @@
+!connect jdbc:hive2://hbase:10000/default root bigdata
+
+create table shop_info(
+    `shop_id` int(10) PRIMARY KEY,
+    `city_name` varchar(100),
+    `location_id` varchar(10),
+    `per_pay`int(10),
+    `score` int(10),
+    `comment_cnt` int(10),
+    `shop_level` int(10),
+    `cate_1_name` varchar(50),
+    `cate_2_name` varchar(50),
+    `cate_3_name` varchar(50)
+)DEFAULT CHARSET=utf8;
+
+
+
+create table if not exists shop_info (
+ shop_id STRING,
+ city_name STRING,
+ location_id STRING,
+ pre_pay INT,
+ score INT,
+ comment_cnt INT,
+ shop_level INT,
+ cate_1_name STRING,
+ cate_2_name STRING,
+ cate_3_name STRING
+)ROW FORMAT DELIMITED
+ FIELDS TERMINATED BY ','
+ ;
+
+load data inpath '/Alibaba/shop_info.txt' overwrite into table shop_info;
+
+create table user_pay(user_id STRING,shop_id STRING,ts TIMESTAMP)ROW FORMAT DELIMITED FIELDS TERMINATED BY ',';
+
+load data inpath '/Alibaba/user_pay.txt' overwrite into table user_pay;
+
+create table user_view(user_id STRING,shop_id STRING,ts TIMESTAMP)ROW FORMAT DELIMITED FIELDS TERMINATED BY ',';
+
+load data inpath '/Alibaba/user_view.txt' overwrite into table user_view;
+
+select a.* from mygoods a where (select count(*) from mygoods where cat_id = a.cat_id and price > a.price and status=1  ) <2 and status=1 order by a.cat_id,a.price desc ;
+
+select shop_id,city_name,(pre_pay/20*0.3+score/5*0.7) as score_real
+    from shop_info a
+    where (select count(*) from shop_info
+    where city_name=a.city_name,(pre_pay/20*0.3+score/5*0.7)>(a.pre_pay/20*0.3+a.score/5*0.7))<5
+    order by a.city_name desc;
+select shop_id,city_name,(pre_pay/20*0.3+score/5*0.7) as score_real from shop_info a where (select count(*) from shop_info where city_name=a.city_name,(pre_pay/20*0.3+score/5*0.7)>(a.pre_pay/20*0.3+a.score/5*0.7))<5 order by a.city_name desc;
+
+select a.* from mygoods a where (select count(*) from mygoods  where cat_id = a.cat_id and price > a.price  ) <2 order by a.cat_id,a.price desc;
+
+select a.* from mygoods a where (select count(*) from mygoods  where cat_id = a.cat_id and price > a.price  ) <2 order by a.price desc;
+
+CREATE TABLE `mygoods` (
+  `goods_id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `cat_id` int(11) NOT NULL DEFAULT '0',
+  `price` tinyint(3) NOT NULL DEFAULT '0',
+  `status` tinyint(3) DEFAULT '1',
+  PRIMARY KEY (`goods_id`),
+  KEY `icatid` (`cat_id`)
+) ENGINE=InnoDB  DEFAULT CHARSET=utf8;
+
+
+sqoop import --connect jdbc:mysql://mysql1:3306/db --username shell --password 123456 --table mygoods --target-dir hdfs://namenode:9000/Hive/mygoods --fields-terminated-by "," --hive-import --create-hive-table --hive-table default.mygoods
+
+
+select a.* from mygoods a left join mygoods b on a.cat_id = b.cat_id and a.price < b.price and b.status=1 where a.status=1 group by a.goods_id,a.cat_id,a.price having count(b.goods_id) < 2 order by a.cat_id,a.price desc;
+select *, row_number() over (partition by cat_id order by price) as od from mygoods where od<5;
+select cat_id,price from (select *, row_number() over (partition by cat_id order by price desc) as od from mygoods ) t where od<=3;
+
+select city_name,pre_pay,score from (select * ,row_number() over (partition by city_name order by pre_pay/20*0.3+score/5*0.7 desc) as judge_score from shop_info where city_name in("北京","南京","杭州","深圳")) shop_info where judge_score<=5;
+
+select * from shop_info where cate_3_name="奶茶";
+
+select from_unixtime(unix_timestamp('2016-10-21 18:00:00.0','yyyy-MM-dd'),'yyyy-MM-dd') from user_view limit 1;
+
+select shop_id,from_unixtime(unix_timestamp(ts,'yyyy-MM-dd HH:mm:ss'),'yyyy-MM-dd') as day from user_view where shop_id=1197;
+
+select shop_id,count(*) from(select *,from_unixtime(unix_timestamp(ts,'yyyy-MM-dd HH:mm:ss'),'yyyy-MM-dd') as day from user_view) where shop_id=1197 group by day,shop_id
+
+select shop_id,day,count(*) as total from(select *,from_unixtime(unix_timestamp(ts,'yyyy-MM-dd HH:mm:ss'),'yyyy-MM-dd') as day from user_view) t where t.shop_id='1197' group by day,shop_id order by total desc;

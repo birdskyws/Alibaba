@@ -62,3 +62,21 @@ Presto 分析
 |redis| 3.2.8 | |
 |kafka| 2.10 | |
 |spark| 2.1.1 | |
+
+## shop_info.sql
+mysql> show create table Alibaba.shop_info \G
+*************************** 1. row ***************************
+       Table: shop_info
+Create Table: CREATE TABLE `shop_info` (
+  `shop_id` int(10) NOT NULL,
+  `city_name` varchar(100) DEFAULT NULL,
+  `location_id` varchar(10) DEFAULT NULL,
+  `per_pay` int(10) DEFAULT NULL,
+  `score` int(10) DEFAULT NULL,
+  `comment_cnt` int(10) DEFAULT NULL,
+  `shop_level` int(10) DEFAULT NULL,
+  `cate_1_name` varchar(50) DEFAULT NULL,
+  `cate_2_name` varchar(50) DEFAULT NULL,
+  `cate_3_name` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`shop_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8
