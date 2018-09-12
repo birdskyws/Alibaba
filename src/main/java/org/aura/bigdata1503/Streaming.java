@@ -1,116 +1,144 @@
 package org.aura.bigdata1503;
-import java.io.BufferedReader;
 import java.sql.*;
+import java.util.HashMap;
+import java.util.Map;
 
 
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URI;
-import java.util.Properties;
+import com.google.common.collect.Sets;
+import kafka.serializer.StringDecoder;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.kafka.clients.producer.*;
 
+import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.broadcast.Broadcast;
+import org.apache.spark.streaming.Durations;
+import org.apache.spark.streaming.api.java.JavaPairInputDStream;
+import org.apache.spark.streaming.api.java.JavaStreamingContext;
+import org.apache.spark.streaming.kafka.*;
+import redis.clients.jedis.Jedis;
+import scala.Tuple2;
+
+/**
+ * 每个商家实时交易次数，并存入redis，其中key 为”jiaoyi+<shop_id>”, value 为累计的次数
+ * 每个城市发生的交易次数，并存储redis，其中key为“交易+<城市名 称>”,value 为累计的次数
+ */
 public class Streaming {
     static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
     static final String DB_URL = "jdbc:mysql://mysql1:3306/Alibaba";
-
-    // 数据库的用户名与密码，需要根据自己的设置
     static final String USER = "shell";
     static final String PASS = "123456";
-    public static void main(String[] args) {
-        //shop();
-        readUser_pay();
-        //kafka_producer();
+    static final Jedis jedis = new Jedis("datanode2");
+
+    static JavaStreamingContext jssc;
+
+    public static void main(String[] args) throws InterruptedException {
+        SparkConf conf = new SparkConf();
+        conf.setAppName("KafkaStream");
+        conf.set("spark.streaming.stopGracefullyOnShutdown","true");
+        jssc = new JavaStreamingContext(conf, Durations.seconds(10));
+        stream();
+        jssc.start();
+        jssc.awaitTermination();
     }
-    public static void kafka_producer()
-    {
-        Properties props = getConfig();
-        Producer<String, String> producer = new KafkaProducer<String, String>(props);
-        for (int i = 0; i < 100000; i++) {
-            System.out.println("i:" + i);
-            long startTime = System.currentTimeMillis();
-            producer.send(new ProducerRecord<String, String>("exam2",
-                            Integer.toString(i), Integer.toString(i))
-                    ,new DemoCallBack(startTime, Integer.toString(i), Integer.toString(i)));
-            try {
-                Thread.sleep(2000);
-            }
-            catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+    /**
+     * 工具类，更新redis
+     */
+    public static void setJedisValue(String key,String  value){
+        if(jedis.exists(key))
+        {
+            String old_times = jedis.get(key);
+            int new_times = Integer.parseInt(value)+Integer.parseInt(value);
+            jedis.set(key,new Integer(new_times).toString());
         }
-
-        producer.close();
-    }
-    // config
-    public static Properties getConfig()
-    {
-        Properties props = new Properties();
-        props.put("bootstrap.servers", "hbase:9092,datanode2:9092,datanode3:9092");
-        props.put("acks", "all");
-        props.put("retries", 0);
-        props.put("batch.size", 16384);
-        props.put("linger.ms", 1);
-        props.put("buffer.memory", 33554432);
-        props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
-        return props;
-    }
-
-    public static void readUser_pay(){
-        StringBuffer buffer = new StringBuffer();
-        FSDataInputStream fsr = null;
-        BufferedReader bufferedReader = null;
-        String lineTxt = null;
-
-        Configuration conf = new Configuration();
-        String txtFilePath = "hdfs://namenode:9000/Hive/user_pay/user_pay.txt";
-
-        Properties props = getConfig();
-        Producer<String, String> producer = new KafkaProducer<String, String>(props);
-
-        try
-        {
-            FileSystem fs = FileSystem.get(URI.create(txtFilePath),conf);
-            fsr = fs.open(new Path(txtFilePath));
-            bufferedReader = new BufferedReader(new InputStreamReader(fsr));
-            while ((lineTxt = bufferedReader.readLine()) != null)
-            {
-                String[] arr = lineTxt.split(",");
-                String key = arr[0];
-                String value = arr[1]+arr[2];
-                long startTime = System.currentTimeMillis();
-                producer.send(new ProducerRecord<String, String>("user_pay",key,value)
-                        ,new DemoCallBack(startTime, key, value));
-                Thread.sleep(10);
-            }
-        } catch (Exception e)
-        {
-            e.printStackTrace();
-        } finally
-        {
-            if (bufferedReader != null)
-            {
-                try
-                {
-                    bufferedReader.close();
-                } catch (IOException e)
-                {
-                    e.printStackTrace();
-                }
-            }
+        else{
+            jedis.set(key,value);
         }
-
     }
 
-    public static void shop()
+    /***
+     * kafka setting
+     * @return
+     */
+    public static Map<String,String> getKafkaConfig(){
+        Map<String,String> kafkaParams =  new HashMap<String,String>();
+        kafkaParams.put("bootstrap.servers","hbase:9092");
+        kafkaParams.put("auto.offset.reset","smallest");
+        kafkaParams.put("group.id","homework");
+        return kafkaParams;
+    }
+    /**
+     * 编写 spark streaming 程序，依次读取 kafka 中 user_pay 主题数据，并统计:
+     * 每个商家实时交易次数，并存入redis，其中key 为”jiaoyi+<shop_id>”, value 为累计的次数
+     * 每个城市发生的交易次数，并存储redis，其中key为“交易+<城市名 称>”,value 为累计的次数
+     */
+    public static void stream()
+    {
+
+        JavaPairInputDStream<String,String> inputDStream = KafkaUtils.createDirectStream(
+                jssc,String.class,String.class,StringDecoder.class,StringDecoder.class,
+                getKafkaConfig(),Sets.newHashSet("user_pay"));
+
+        inputDStream.cache();
+        transaction(inputDStream);
+        cityCount(inputDStream);
+    }
+    /**
+     * 统计城市交易次数
+     * kafka data:user_id为 key，shop_id+”,”+time_stamp 为 value
+     * shopMap存储<shop_id,city_name>
+     */
+    public static void cityCount(JavaPairInputDStream<String,String> inputDStream){
+
+        Map<String,String> map = shop();
+        Broadcast<Map<String,String>> shopMapBroadcast = jssc.sparkContext().broadcast(map);
+        inputDStream.foreachRDD(rdd->{
+            /**
+             * map转化
+             * <city_name,1>
+             */
+            JavaPairRDD<String,Integer> citynameRDD = rdd.mapToPair(v->{
+                String shop_id = v._2.split(",")[0];
+                String city_name =shopMapBroadcast.getValue().get(shop_id);
+                return new Tuple2<>(city_name,1);
+            });
+            /**
+             * 按 city_name 聚合
+             */
+            citynameRDD.reduceByKey((v1, v2) -> v1+v2)
+                    .foreach(info->{
+                        setJedisValue(info._1,info._2.toString());
+                    });
+        });
+    }
+    /**
+     * kafka data:user_id为 key，shop_id+”,”+time_stamp 为 value
+     * 保存shop_id计数到redis中。
+     * param:inputDStream KafkaDStream
+     */
+    public static void transaction(JavaPairInputDStream<String,String> inputDStream)
+    {
+        inputDStream.foreachRDD(rdd->{
+            /**
+             * map <shop_id,1>
+             * 聚合 shop_id
+             */
+            rdd.mapToPair(l->{
+                String[] arr = l._2.split(",");
+                return new Tuple2<>(arr[0],1);
+            }).reduceByKey((v1,v2)->v1+v2)
+            .foreach(info->{
+                setJedisValue(info._1,info._2.toString());
+            });
+        });
+    }
+    /**
+     * 返回shop_id 和 city_name 对应的Map
+     */
+    public static Map<String,String> shop()
     {
         Connection conn = null;
         Statement stmt = null;
+        Map<String,String> map = new HashMap<>();
         try{
             // 注册 JDBC 驱动
             Class.forName("com.mysql.jdbc.Driver");
@@ -131,13 +159,9 @@ public class Streaming {
                 // 通过字段检索
                 Long id  = rs.getLong("shop_id");
                 String name = rs.getString("city_name");
-                int pre_pay = rs.getInt("per_pay");
-
-                // 输出数据
-                System.out.print("ID: " + id);
-                System.out.print(", 城市名称: " + name);
-                System.out.print(", 平均消费: " + pre_pay);
-                System.out.print("\n");
+                String key = id.toString();
+                String value = name;
+                map.put(key, value);
             }
             // 完成后关闭
             rs.close();
@@ -162,39 +186,21 @@ public class Streaming {
             }
         }
         System.out.println("Goodbye!");
+        return map;
+    }
+    public static void jedisTest(){
+        //添加
+        Jedis jedis = new Jedis("datanode2");
+        jedis.set("wsn","1");
+        jedis.set("wsn","2");
+        //读取
+        String a  = jedis.get("wsn");
+        System.out.println(a);
+        //添加2
+        //读取
+        String c = jedis.get("wsn2");
+        System.out.println(c);
+        System.out.println(jedis.exists("wsn2"));
     }
 }
 
-class DemoCallBack implements Callback {
-
-    private final long startTime;
-    private final String key;
-    private final String message;
-
-    public DemoCallBack(long startTime, String key, String message) {
-        this.startTime = startTime;
-        this.key = key;
-        this.message = message;
-    }
-
-    /**
-     * A callback method the user can implement to provide asynchronous handling of request completion. This method will
-     * be called when the record sent to the server has been acknowledged. Exactly one of the arguments will be
-     * non-null.
-     *
-     * @param metadata  The metadata for the record that was sent (i.e. the partition and offset). Null if an error
-     *                  occurred.
-     * @param exception The exception thrown during processing of this record. Null if no error occurred.
-     */
-    public void onCompletion(RecordMetadata metadata, Exception exception) {
-        long elapsedTime = System.currentTimeMillis() - startTime;
-        if (metadata != null) {
-            System.out.println(
-                    "message(" + key + ", " + message + ") sent to partition(" + metadata.partition() +
-                            "), " +
-                            "offset(" + metadata.offset() + ") in " + elapsedTime + " ms");
-        } else {
-            exception.printStackTrace();
-        }
-    }
-}
