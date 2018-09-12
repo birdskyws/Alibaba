@@ -14,10 +14,10 @@ public class Presto {
     public static String day_shop_view = "select day,count(1) from (select format_datetime(from_unixtime(to_unixtime(cast (ts as timestamp))),'yyyy-MM-dd') as day ,* from user_pay t) group by day";
     public static String day_shop_pay = "select day,count(1) from (select format_datetime(from_unixtime(to_unixtime(cast (ts as timestamp))),'yyyy-MM-dd') as day ,* from user_view t) group by day";
     /**
-     *
+     * 统计最受欢迎的前 10 类商品(按照二级分类统计)
      */
     public static String top_cate2name = "select cate_2_name,c1*0.3+c2*0.7 as score from (select t1.cate_2_name,t1.c1,t2.c2 from (select cate_2_name,count(1) as c1 from user_pay join shop_info on user_pay.shop_id=shop_info.shop_id group by cate_2_name) t1 join (select cate_2_name,count(1) as c2 from user_view join shop_info on user_view.shop_id=shop_info.shop_id group by cate_2_name) t2 on t1.cate_2_name=t2.cate_2_name) order by score desc";
-
+    public static String top_pay = "";
 }
 /*
 select day,count(1) from (select format_datetime(from_unixtime(to_unixtime(cast (ts as timestamp))),'yyyy-MM-dd') as day ,* from user_pay t) group by day;
